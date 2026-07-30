@@ -121,6 +121,7 @@ export default {
       }
 
       const generated = generateSymbol(symbolItem.symbol);
+      const pricescale = Math.pow(10, symbolItem.pip_size ?? 2);
 
       setTimeout(() =>
         onSymbolResolvedCallback({
@@ -134,7 +135,7 @@ export default {
           logo_urls: [],
           timezone: 'Etc/UTC',
           minmov: 1,
-          pricescale: symbolItem.pricescale,
+          pricescale,
           format: 'price',
           has_intraday: true,
           intraday_multipliers: SUPPORTED_RESOLUTIONS.filter(
