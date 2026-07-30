@@ -6,10 +6,10 @@ import {
 	getAllSymbols,
 	getSymbolInfoItem,
 	parseFullSymbol,
-	barStartTime,
 } from './helpers.js';
 import {
 	fetchHistory,
+	fetchServerTime,
 	subscribeStream,
 	unsubscribeStream,
 } from './deriv-client.js';
@@ -19,7 +19,7 @@ const lastBarsCache = new Map();
 const configurationData = {
 	supports_timescale_marks: false,
 	supports_marks: false,
-	supports_time: false,
+	supports_time: true,
 	supported_resolutions: SUPPORTED_RESOLUTIONS,
 	exchanges: [
 		{
@@ -35,6 +35,28 @@ export default {
 	// Publishes the datafeed capabilities TradingView uses during startup.
 	onReady(callback) {
 		setTimeout(() => callback(configurationData));
+	},
+
+	// Synchronizes countdowns with Deriv server time.
+	getServerTime(callback) {
+		fetchServerTime()
+			.then(epochSeconds => {
+				if (Number.isFinite(epochSeconds)) {
+					callback(epochSeconds);
+					return;
+				}
+				console.warn(
+					'[getServerTime] Deriv returned invalid server time; using local clock.'
+				);
+				callback(Math.floor(Date.now() / 1000));
+			})
+			.catch(error => {
+				console.warn(
+					'[getServerTime] Unable to retrieve Deriv server time; using local clock.',
+					error
+				);
+				callback(Math.floor(Date.now() / 1000));
+			});
 	},
 
 	// Returns search matches from the hardcoded Deriv symbol catalog.
@@ -119,7 +141,7 @@ export default {
 		onHistoryCallback,
 		onErrorCallback
 	) {
-		const { from, to, firstDataRequest } = periodParams;
+		const { from, to } = periodParams;
 
 		const parsed = parseFullSymbol(symbolInfo.ticker);
 		if (!parsed) {
@@ -160,13 +182,12 @@ export default {
 				return;
 			}
 
-			if (firstDataRequest) {
-				lastBarsCache.set(symbolInfo.ticker, {
-					...bars[bars.length - 1],
-				});
-			}
-
 			onHistoryCallback(bars, { noData: false });
+
+			// Cache last bar for streaming bootstrap.
+			lastBarsCache.set(symbolInfo.ticker, {
+				...bars[bars.length - 1],
+			});
 		} catch (error) {
 			console.error('[getBars] Error:', error);
 			onErrorCallback(error);
