@@ -1,5 +1,4 @@
 import Datafeed from './datafeed/datafeed.js';
-import { CRYPTO_RSS_NEWS_FEED, CRYPTO_RSS_TITLE } from './news.js';
 import { cssBlobUrl, getChartOverrides, theme } from './theme.js';
 
 const SHARED_ENABLED_FEATURES = [
@@ -14,18 +13,6 @@ const SHARED_DISABLED_FEATURES = [
 	'use_localstorage_for_settings',
 	'save_chart_properties_to_local_storage',
 	'volume_force_overlay',
-];
-
-const TRADING_PLATFORM_ENABLED_FEATURES = [
-	'dom_widget',
-	'saveload_separate_drawings_storage',
-	'pre_post_market_price_line',
-	'legend_last_day_change',
-];
-
-const TRADING_PLATFORM_DISABLED_FEATURES = [
-	'open_account_manager',
-	'show_right_widgets_panel_by_default',
 ];
 
 // The free Advanced Charts page does not have widgetbar quote/news/DOM UI, so expose
@@ -59,8 +46,8 @@ export function createWidgetOptions({
 	...options
 } = {}) {
 	return {
-		symbol: 'Binance:ETH/USDT',
-		interval: '1D',
+		symbol: 'Deriv:R_10',
+		interval: '5',
 		fullscreen: true,
 		container: 'tv_chart_container',
 		datafeed,
@@ -92,27 +79,5 @@ export function createAdvancedChartOptions({ ...options } = {}) {
 		...options,
 		datafeed: ADVANCED_CHARTS_DATAFEED,
 		libraryPath: 'vendor/tradingview/advanced_charts/',
-	});
-}
-
-// Builds the Trading Platform experience with broker, account-manager, and layout UI enabled.
-export function createTradingPlatformOptions({
-	enabledFeatures = [],
-	disabledFeatures = [],
-	...options
-} = {}) {
-	return createWidgetOptions({
-		...options,
-		libraryPath: 'vendor/tradingview/trading_platform/',
-		rss_news_feed: CRYPTO_RSS_NEWS_FEED,
-		rss_news_title: CRYPTO_RSS_TITLE,
-		enabledFeatures: [
-			...TRADING_PLATFORM_ENABLED_FEATURES,
-			...enabledFeatures,
-		],
-		disabledFeatures: [
-			...TRADING_PLATFORM_DISABLED_FEATURES,
-			...disabledFeatures,
-		],
 	});
 }

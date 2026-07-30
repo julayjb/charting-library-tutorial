@@ -1,276 +1,198 @@
-// Shared helpers for the Binance-backed TradingView datafeed.
+// Shared helpers for the Deriv-backed TradingView datafeed.
 
-export const BINANCE_EXCHANGE = 'Binance';
+export const DERIV_EXCHANGE = 'Deriv';
 
-const BINANCE_API_URL = 'https://api.binance.com/';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const SUPPORTED_RESOLUTIONS = [
 	'1',
-	'2',
-	'3',
-	'4',
 	'5',
-	'10',
 	'15',
 	'30',
 	'60',
-	'90',
 	'120',
-	'180',
 	'240',
 	'360',
 	'480',
 	'720',
 	'1D',
-	'3D',
-	'1W',
-	'1M',
 ];
 
-const BINANCE_INTERVAL_MS = Object.freeze({
-	'1m': 60 * 1000,
-	'3m': 3 * 60 * 1000,
-	'5m': 5 * 60 * 1000,
-	'15m': 15 * 60 * 1000,
-	'30m': 30 * 60 * 1000,
-	'1h': 60 * 60 * 1000,
-	'2h': 2 * 60 * 60 * 1000,
-	'4h': 4 * 60 * 60 * 1000,
-	'6h': 6 * 60 * 60 * 1000,
-	'8h': 8 * 60 * 60 * 1000,
-	'12h': 12 * 60 * 60 * 1000,
-	'1d': DAY_MS,
-	'3d': 3 * DAY_MS,
-	'1w': 7 * DAY_MS,
-});
+// Maps TradingView resolutions to Deriv candle granularity in seconds.
+export const DERIV_GRANULARITIES = {
+	'1': 60,
+	'5': 300,
+	'15': 900,
+	'30': 1800,
+	'60': 3600,
+	'120': 7200,
+	'240': 14400,
+	'360': 21600,
+	'480': 28800,
+	'720': 43200,
+	'1D': 86400,
+};
 
-const RESOLUTION_SPECS = Object.freeze({
-	1: {
-		interval: '1m',
-		aggregate: 1,
-		streamType: 'kline',
-		streamInterval: '1m',
+// Hardcoded symbol catalog for Deriv synthetic indices.
+const DERIV_SYMBOL_CATALOG = [
+	{
+		symbol: 'R_10',
+		description: 'Volatility 10 Index',
+		type: 'synthetic',
+		pricescale: 100,
+		volumeEnabled: false,
 	},
-	2: { interval: '1m', aggregate: 2, streamType: 'trade' },
-	3: {
-		interval: '3m',
-		aggregate: 1,
-		streamType: 'kline',
-		streamInterval: '3m',
+	{
+		symbol: 'R_25',
+		description: 'Volatility 25 Index',
+		type: 'synthetic',
+		pricescale: 100,
+		volumeEnabled: false,
 	},
-	4: { interval: '1m', aggregate: 4, streamType: 'trade' },
-	5: {
-		interval: '5m',
-		aggregate: 1,
-		streamType: 'kline',
-		streamInterval: '5m',
+	{
+		symbol: 'R_50',
+		description: 'Volatility 50 Index',
+		type: 'synthetic',
+		pricescale: 100,
+		volumeEnabled: false,
 	},
-	10: { interval: '5m', aggregate: 2, streamType: 'trade' },
-	15: {
-		interval: '15m',
-		aggregate: 1,
-		streamType: 'kline',
-		streamInterval: '15m',
+	{
+		symbol: 'R_75',
+		description: 'Volatility 75 Index',
+		type: 'synthetic',
+		pricescale: 100,
+		volumeEnabled: false,
 	},
-	30: {
-		interval: '30m',
-		aggregate: 1,
-		streamType: 'kline',
-		streamInterval: '30m',
+	{
+		symbol: 'R_100',
+		description: 'Volatility 100 Index',
+		type: 'synthetic',
+		pricescale: 100,
+		volumeEnabled: false,
 	},
-	60: {
-		interval: '1h',
-		aggregate: 1,
-		streamType: 'kline',
-		streamInterval: '1h',
+	{
+		symbol: '1HZ10V',
+		description: 'Volatility 10 (1s) Index',
+		type: 'synthetic',
+		pricescale: 100,
+		volumeEnabled: false,
 	},
-	90: { interval: '30m', aggregate: 3, streamType: 'trade' },
-	120: {
-		interval: '2h',
-		aggregate: 1,
-		streamType: 'kline',
-		streamInterval: '2h',
+	{
+		symbol: '1HZ25V',
+		description: 'Volatility 25 (1s) Index',
+		type: 'synthetic',
+		pricescale: 100,
+		volumeEnabled: false,
 	},
-	180: { interval: '1h', aggregate: 3, streamType: 'trade' },
-	240: {
-		interval: '4h',
-		aggregate: 1,
-		streamType: 'kline',
-		streamInterval: '4h',
+	{
+		symbol: '1HZ50V',
+		description: 'Volatility 50 (1s) Index',
+		type: 'synthetic',
+		pricescale: 100,
+		volumeEnabled: false,
 	},
-	360: {
-		interval: '6h',
-		aggregate: 1,
-		streamType: 'kline',
-		streamInterval: '6h',
+	{
+		symbol: '1HZ75V',
+		description: 'Volatility 75 (1s) Index',
+		type: 'synthetic',
+		pricescale: 100,
+		volumeEnabled: false,
 	},
-	480: {
-		interval: '8h',
-		aggregate: 1,
-		streamType: 'kline',
-		streamInterval: '8h',
+	{
+		symbol: '1HZ100V',
+		description: 'Volatility 100 (1s) Index',
+		type: 'synthetic',
+		pricescale: 100,
+		volumeEnabled: false,
 	},
-	720: {
-		interval: '12h',
-		aggregate: 1,
-		streamType: 'kline',
-		streamInterval: '12h',
+	{
+		symbol: 'BOOM300N',
+		description: 'Boom 300 Index',
+		type: 'synthetic',
+		pricescale: 100,
+		volumeEnabled: false,
 	},
-	'1D': {
-		interval: '1d',
-		aggregate: 1,
-		streamType: 'kline',
-		streamInterval: '1d',
+	{
+		symbol: 'CRASH300N',
+		description: 'Crash 300 Index',
+		type: 'synthetic',
+		pricescale: 100,
+		volumeEnabled: false,
 	},
-	'3D': {
-		interval: '3d',
-		aggregate: 1,
-		streamType: 'kline',
-		streamInterval: '3d',
-	},
-	'1W': {
-		interval: '1w',
-		aggregate: 1,
-		streamType: 'kline',
-		streamInterval: '1w',
-	},
-	'1M': {
-		interval: '1M',
-		aggregate: 1,
-		streamType: 'kline',
-		streamInterval: '1M',
-	},
-});
-
-// Sends a REST request to Binance and normalizes transport errors.
-export async function makeApiRequest(path, params = {}) {
-	try {
-		const url = new URL(path, BINANCE_API_URL);
-
-		Object.entries(params).forEach(([key, value]) => {
-			if (value !== undefined && value !== null) {
-				url.searchParams.set(key, String(value));
-			}
-		});
-
-		const response = await fetch(url.toString());
-		if (!response.ok) {
-			throw new Error(`HTTP ${response.status}`);
-		}
-
-		return response.json();
-	} catch (error) {
-		throw new Error(`Binance request error: ${error.message}`);
-	}
-}
-
-// Splits a TradingView ticker into exchange, base, quote, and provider symbol parts.
-export function parseFullSymbol(fullSymbol) {
-	const match = fullSymbol.match(/^([^:]+):([^/]+)\/([^/]+)$/);
-	if (!match) return null;
-
-	const exchange = match[1];
-	const fromSymbol = match[2].toUpperCase();
-	const toSymbol = match[3].toUpperCase();
-
-	return {
-		exchange,
-		fromSymbol,
-		toSymbol,
-		symbol: `${fromSymbol}${toSymbol}`,
-	};
-}
+];
 
 // Builds the symbol shapes used by TradingView search and resolve flows.
-export function generateSymbol(exchange, fromSymbol, toSymbol) {
-	const base = fromSymbol.toUpperCase();
-	const quote = toSymbol.toUpperCase();
-	const short = `${base}/${quote}`;
+export function generateSymbol(symbolName) {
+	const short = symbolName;
+	const full = `${DERIV_EXCHANGE}:${symbolName}`;
 
-	return {
-		short,
-		full: `${exchange}:${short}`,
-		symbol: `${base}${quote}`,
-	};
-}
-
-// Maps a TradingView resolution to the Binance interval and stream strategy behind it.
-export function getResolutionSpec(resolution) {
-	return RESOLUTION_SPECS[resolution] ?? null;
-}
-
-// Converts a native Binance interval into milliseconds when the duration is fixed.
-export function intervalToMilliseconds(interval) {
-	return BINANCE_INTERVAL_MS[interval] ?? null;
-}
-
-// Converts a TradingView resolution into milliseconds when the duration is fixed.
-export function resolutionToMilliseconds(resolution) {
-	if (resolution === '1D') return DAY_MS;
-	if (resolution === '3D') return 3 * DAY_MS;
-	if (resolution === '1W') return 7 * DAY_MS;
-	if (resolution === '1M') return null;
-
-	const minutes = parseInt(resolution, 10);
-	if (!Number.isNaN(minutes)) {
-		return minutes * 60 * 1000;
-	}
-
-	const hourMatch = resolution.match(/^(\d+)H$/i);
-	if (hourMatch) {
-		return parseInt(hourMatch[1], 10) * 60 * 60 * 1000;
-	}
-
-	return null;
+	return { short, full, symbol: symbolName };
 }
 
 // Rounds a timestamp down to the opening time of its containing bar.
 export function barStartTime(timestampMs, resolution) {
+	const granularitySec = DERIV_GRANULARITIES[resolution];
+	if (!granularitySec) return timestampMs;
+
 	if (resolution === '1D') {
 		const d = new Date(timestampMs);
 		d.setUTCHours(0, 0, 0, 0);
 		return d.getTime();
 	}
 
-	if (resolution === '3D') {
-		const d = new Date(timestampMs);
-		d.setUTCHours(0, 0, 0, 0);
-		return Math.floor(d.getTime() / (3 * DAY_MS)) * (3 * DAY_MS);
-	}
-
-	if (resolution === '1W') {
-		const d = new Date(timestampMs);
-		const day = d.getUTCDay();
-		const mondayOffset = day === 0 ? 6 : day - 1;
-		d.setUTCDate(d.getUTCDate() - mondayOffset);
-		d.setUTCHours(0, 0, 0, 0);
-		return d.getTime();
-	}
-
-	if (resolution === '1M') {
-		const d = new Date(timestampMs);
-		d.setUTCDate(1);
-		d.setUTCHours(0, 0, 0, 0);
-		return d.getTime();
-	}
-
-	const intervalMs = resolutionToMilliseconds(resolution);
-	if (!intervalMs) return timestampMs;
-
+	const intervalMs = granularitySec * 1000;
 	return Math.floor(timestampMs / intervalMs) * intervalMs;
 }
 
 // Advances a bar timestamp to the next bar boundary for the same resolution.
 export function getNextBarTime(barTimeMs, resolution) {
-	if (resolution === '1M') {
-		const d = new Date(barTimeMs);
-		d.setUTCMonth(d.getUTCMonth() + 1);
-		return d.getTime();
-	}
+	const granularitySec = DERIV_GRANULARITIES[resolution];
+	if (!granularitySec) return barTimeMs;
 
-	const intervalMs = resolutionToMilliseconds(resolution);
-	if (!intervalMs) return barTimeMs;
-
+	const intervalMs = granularitySec * 1000;
 	return barTimeMs + intervalMs;
+}
+
+// Maps a TradingView resolution to its Deriv granularity in seconds.
+export function getResolutionSpec(resolution) {
+	const granularity = DERIV_GRANULARITIES[resolution];
+	if (!granularity) return null;
+
+	return { granularity };
+}
+
+// Finds a symbol regardless of whether the library passes short or full ticker text.
+export function getSymbolInfoItem(symbolName) {
+	const needle = symbolName.toLowerCase().replace(/^deriv:/, '');
+
+	return (
+		DERIV_SYMBOL_CATALOG.find(
+			item => item.symbol.toLowerCase() === needle
+		) ?? null
+	);
+}
+
+// Exposes the full catalog for search.
+export function getAllSymbols() {
+	return DERIV_SYMBOL_CATALOG.map(item => {
+		const generated = generateSymbol(item.symbol);
+		return {
+			symbol: generated.short,
+			full_name: generated.full,
+			ticker: generated.full,
+			description: item.description,
+			exchange: DERIV_EXCHANGE,
+			type: item.type,
+		};
+	});
+}
+
+// Strips the exchange prefix from a TradingView ticker (e.g. "Deriv:R_10" → "R_10").
+export function parseFullSymbol(fullSymbol) {
+	const match = fullSymbol.match(/^(?:[^:]+:)?(.+)$/);
+	if (!match) return null;
+
+	return {
+		symbol: match[1].toUpperCase(),
+	};
 }
