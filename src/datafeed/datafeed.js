@@ -32,34 +32,31 @@ const configurationData = {
 };
 
 export default {
-	// Publishes the datafeed capabilities TradingView uses during startup.
 	onReady(callback) {
 		setTimeout(() => callback(configurationData));
 	},
 
-	// Synchronizes countdowns with Deriv server time.
 	getServerTime(callback) {
 		fetchServerTime()
 			.then(epochSeconds => {
 				if (Number.isFinite(epochSeconds)) {
-					callback(epochSeconds);
+					setTimeout(() => callback(epochSeconds));
 					return;
 				}
 				console.warn(
-					'[getServerTime] Deriv returned invalid server time; using local clock.'
+					'[getServerTime] Invalid server time; using local clock.'
 				);
-				callback(Math.floor(Date.now() / 1000));
+				setTimeout(() => callback(Math.floor(Date.now() / 1000)));
 			})
 			.catch(error => {
 				console.warn(
-					'[getServerTime] Unable to retrieve Deriv server time; using local clock.',
+					'[getServerTime] Unable to retrieve server time; using local clock.',
 					error
 				);
-				callback(Math.floor(Date.now() / 1000));
+				setTimeout(() => callback(Math.floor(Date.now() / 1000)));
 			});
 	},
 
-	// Returns search matches from the hardcoded Deriv symbol catalog.
 	async searchSymbols(
 		userInput,
 		exchange,
@@ -83,11 +80,10 @@ export default {
 			return matchesExchange && matchesType && matchesQuery;
 		});
 
-		onResultReadyCallback(filtered.slice(0, 200));
+		setTimeout(() => onResultReadyCallback(filtered.slice(0, 200)));
 	},
 
-	// Resolves a TradingView ticker into symbol metadata for Deriv synthetic indices.
-	async resolveSymbol(
+	resolveSymbol(
 		symbolName,
 		onSymbolResolvedCallback,
 		onResolveErrorCallback
@@ -97,43 +93,45 @@ export default {
 
 			if (!symbolItem) {
 				console.warn('[resolveSymbol] Cannot resolve:', symbolName);
-				onResolveErrorCallback('unknown_symbol');
+				setTimeout(() => onResolveErrorCallback('unknown_symbol'));
 				return;
 			}
 
 			const generated = generateSymbol(symbolItem.symbol);
 
-			onSymbolResolvedCallback({
-				ticker: generated.full,
-				name: generated.short,
-				description: symbolItem.description,
-				type: symbolItem.type,
-				exchange: DERIV_EXCHANGE,
-				listed_exchange: DERIV_EXCHANGE,
-				session: '24x7',
-				logo_urls: [],
-				timezone: 'Etc/UTC',
-				minmov: 1,
-				pricescale: symbolItem.pricescale,
-				format: 'price',
-				has_intraday: true,
-				intraday_multipliers: SUPPORTED_RESOLUTIONS.filter(
-					r => r !== '1D'
-				),
-				has_daily: true,
-				daily_multipliers: ['1'],
-				has_weekly_and_monthly: true,
-				visible_plots_set: 'ohlcv',
-				supported_resolutions: configurationData.supported_resolutions,
-				data_status: 'streaming',
-			});
+			setTimeout(() =>
+				onSymbolResolvedCallback({
+					ticker: generated.full,
+					name: generated.short,
+					description: symbolItem.description,
+					type: symbolItem.type,
+					exchange: DERIV_EXCHANGE,
+					listed_exchange: DERIV_EXCHANGE,
+					session: '24x7',
+					logo_urls: [],
+					timezone: 'Etc/UTC',
+					minmov: 1,
+					pricescale: symbolItem.pricescale,
+					format: 'price',
+					has_intraday: true,
+					intraday_multipliers: SUPPORTED_RESOLUTIONS.filter(
+						r => r !== '1D'
+					),
+					has_daily: true,
+					daily_multipliers: ['1'],
+					has_weekly_and_monthly: true,
+					visible_plots_set: 'ohlcv',
+					supported_resolutions:
+						configurationData.supported_resolutions,
+					data_status: 'streaming',
+				})
+			);
 		} catch (error) {
 			console.error('[resolveSymbol] Error:', error);
-			onResolveErrorCallback('unknown_symbol');
+			setTimeout(() => onResolveErrorCallback('unknown_symbol'));
 		}
 	},
 
-	// Fetches historical bars from Deriv ticks_history API with pagination.
 	async getBars(
 		symbolInfo,
 		resolution,
@@ -145,17 +143,18 @@ export default {
 
 		const parsed = parseFullSymbol(symbolInfo.ticker);
 		if (!parsed) {
-			onErrorCallback('Cannot parse symbol ticker');
+			setTimeout(() => onErrorCallback('Cannot parse symbol ticker'));
 			return;
 		}
 
 		const granularity = DERIV_GRANULARITIES[resolution];
 		if (!granularity) {
-			onErrorCallback(`Unsupported resolution: ${resolution}`);
+			setTimeout(() =>
+				onErrorCallback(`Unsupported resolution: ${resolution}`)
+			);
 			return;
 		}
 
-		// Deriv ticks_history uses epoch in seconds.
 		const fromSec = Math.floor(from);
 		const toSec = Math.ceil(to);
 
@@ -168,21 +167,20 @@ export default {
 			);
 
 			if (!rawBars || rawBars.length === 0) {
-				onHistoryCallback([], { noData: true });
+				setTimeout(() => onHistoryCallback([], { noData: true }));
 				return;
 			}
 
-			// Filter to requested range.
 			const bars = rawBars.filter(
 				bar => bar.time >= from * 1000 && bar.time < to * 1000
 			);
 
 			if (bars.length === 0) {
-				onHistoryCallback([], { noData: true });
+				setTimeout(() => onHistoryCallback([], { noData: true }));
 				return;
 			}
 
-			onHistoryCallback(bars, { noData: false });
+			setTimeout(() => onHistoryCallback(bars, { noData: false }));
 
 			// Cache last bar for streaming bootstrap.
 			lastBarsCache.set(symbolInfo.ticker, {
@@ -190,11 +188,10 @@ export default {
 			});
 		} catch (error) {
 			console.error('[getBars] Error:', error);
-			onErrorCallback(error);
+			setTimeout(() => onErrorCallback(error));
 		}
 	},
 
-	// Starts the realtime stream for the active chart symbol and resolution.
 	subscribeBars(
 		symbolInfo,
 		resolution,
@@ -229,7 +226,6 @@ export default {
 		);
 	},
 
-	// Stops the realtime bar stream when TradingView releases a subscriber.
 	unsubscribeBars(subscriberUID) {
 		unsubscribeStream(subscriberUID);
 	},

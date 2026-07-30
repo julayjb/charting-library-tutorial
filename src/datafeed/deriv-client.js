@@ -3,24 +3,22 @@
 
 const DERIV_WS_URL = 'wss://api.derivws.com/trading/v1/options/ws/public';
 const MAX_RECONNECT_DELAY = 30_000;
-const SOCKET_CONNECT_DELAY_MS = 100;
 
 let socket = null;
-let connectTimer = null;
 let reconnectTimer = null;
 let reconnectDelay = 1_000;
-let hasConnectedBefore = false;
 let reqIdCounter = 0;
 
-// Pending one-shot requests keyed by req_id for getBars history matching.
+// Pending messages queued while the socket is still connecting.
+let messageQueue = [];
+
+// Pending one-shot requests keyed by req_id for getBars / time matching.
 const pendingRequests = new Map();
 
 // Active subscriptions for realtime streaming.
-// Each entry: { symbol, granularity, subId, handlers: Map<subscriberUID, handler> }
+// Each entry: { symbol, granularity, handlers: Map<subscriberUID, handler> }
 const activeSubscriptions = new Map();
-// Maps subscriberUID -> subscription key for fast unsubscription.
 const subscriberIndex = new Map();
-// Maps subscription key -> { forgetId } for unsubscribe via forget API.
 const subForgetId = new Map();
 
 function hasActiveWork() {
@@ -36,76 +34,72 @@ function subKey(symbol, granularity) {
 	return `${symbol}:${granularity}`;
 }
 
+// Sends a message. If the socket is still connecting, queues it instead.
 function send(msg) {
-	if (!socket || socket.readyState !== WebSocket.OPEN) return false;
-	socket.send(JSON.stringify(msg));
+	if (socket && socket.readyState === WebSocket.OPEN) {
+		socket.send(JSON.stringify(msg));
+		return true;
+	}
+
+	if (socket && socket.readyState === WebSocket.CONNECTING) {
+		messageQueue.push(msg);
+		return true;
+	}
+
+	// Socket doesn't exist yet; create it and queue.
+	messageQueue.push(msg);
+	createSocket();
 	return true;
 }
 
-function ensureSocket() {
-	if (
-		socket &&
-		(socket.readyState === WebSocket.CONNECTING ||
-			socket.readyState === WebSocket.OPEN)
-	) {
-		return socket;
-	}
+// Flushes queued messages after the socket opens or reconnects.
+function flushQueue() {
+	if (!socket || socket.readyState !== WebSocket.OPEN) return;
 
-	if (!connectTimer) {
-		connectTimer = setTimeout(() => {
-			connectTimer = null;
-			if (hasActiveWork()) {
-				socket = createSocket();
-			}
-		}, SOCKET_CONNECT_DELAY_MS);
-	}
-
-	return socket;
-}
-
-function stopSocketWorkIfIdle() {
-	if (hasActiveWork()) return;
-
-	if (connectTimer) {
-		clearTimeout(connectTimer);
-		connectTimer = null;
-	}
-	if (reconnectTimer) {
-		clearTimeout(reconnectTimer);
-		reconnectTimer = null;
-	}
-	reconnectDelay = 1_000;
+	const queue = messageQueue;
+	messageQueue = [];
+	queue.forEach(msg => {
+		try {
+			socket.send(JSON.stringify(msg));
+		} catch (e) {
+			console.error('[DerivClient] Error flushing queued message:', e);
+		}
+	});
 }
 
 function createSocket() {
-	if (connectTimer) {
-		clearTimeout(connectTimer);
-		connectTimer = null;
-	}
 	if (reconnectTimer) {
 		clearTimeout(reconnectTimer);
 		reconnectTimer = null;
+	}
+
+	// Close existing socket cleanly if it's in a bad state.
+	if (socket && socket.readyState !== WebSocket.CLOSED) {
+		try { socket.close(); } catch {}
 	}
 
 	const ws = new WebSocket(DERIV_WS_URL);
 
 	ws.addEventListener('open', () => {
-		hasConnectedBefore = true;
 		reconnectDelay = 1_000;
+
+		// Flush any messages queued while connecting.
+		flushQueue();
 
 		// Resubscribe all active streams after reconnect.
 		activeSubscriptions.forEach(sub => {
-			sendSubscription(ws, sub.symbol, sub.granularity);
+			sendSubscription(sub.symbol, sub.granularity);
 		});
 	});
 
 	ws.addEventListener('close', () => {
 		if (socket === ws) socket = null;
+
 		if (!hasActiveWork()) return;
 
 		reconnectTimer = setTimeout(() => {
 			reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY);
-			socket = createSocket();
+			createSocket();
 		}, reconnectDelay);
 	});
 
@@ -114,22 +108,19 @@ function createSocket() {
 	});
 
 	ws.addEventListener('message', onMessage);
+	socket = ws;
 	return ws;
 }
 
-function sendSubscription(ws, symbol, granularity) {
-	if (!ws || ws.readyState !== WebSocket.OPEN) return;
-
-	ws.send(
-		JSON.stringify({
-			ticks_history: symbol,
-			adjust_start_time: 1,
-			style: 'candles',
-			granularity,
-			subscribe: 1,
-			req_id: nextRequestId(),
-		})
-	);
+function sendSubscription(symbol, granularity) {
+	send({
+		ticks_history: symbol,
+		adjust_start_time: 1,
+		style: 'candles',
+		granularity,
+		subscribe: 1,
+		req_id: nextRequestId(),
+	});
 }
 
 function barStart(timestampMs, granularitySec) {
@@ -156,25 +147,26 @@ function onMessage(event) {
 		return;
 	}
 
-	// Check for errors first.
+	const reqId = message.req_id ?? message.echo_req?.req_id;
+
+	// Check for errors.
 	if (message.error) {
-		const reqId = message.echo_req?.req_id;
 		if (reqId !== undefined && pendingRequests.has(reqId)) {
 			const pending = pendingRequests.get(reqId);
 			pendingRequests.delete(reqId);
-			pending.reject(new Error(`Deriv API error: ${message.error.message}`));
+			clearTimeout(pending._timer);
+			pending.reject(new Error(`Deriv API error: ${message.error.message || JSON.stringify(message.error)}`));
 			if (!hasActiveWork()) closeSocketIfIdle();
 		}
 		return;
 	}
 
-	const reqId = message.req_id ?? message.echo_req?.req_id;
-
-	// 1) One-shot request response (ticks_history without subscribe).
+	// 1) One-shot candles response (ticks_history without subscribe).
 	if (message.msg_type === 'candles' && !message.subscription) {
 		if (reqId !== undefined && pendingRequests.has(reqId)) {
 			const pending = pendingRequests.get(reqId);
 			pendingRequests.delete(reqId);
+			clearTimeout(pending._timer);
 			const bars = message.candles?.length > 0
 				? normalizeCandles(message.candles)
 				: [];
@@ -184,7 +176,7 @@ function onMessage(event) {
 		return;
 	}
 
-	// 2) Subscription initial data (first candles batch when subscribe starts).
+	// 2) Subscription initial data (candles batch when subscribe starts).
 	if (message.msg_type === 'candles' && message.subscription) {
 		const symbol = message.echo_req?.ticks_history;
 		const granularity = message.echo_req?.granularity;
@@ -194,7 +186,6 @@ function onMessage(event) {
 		const sub = activeSubscriptions.get(key);
 		if (!sub) return;
 
-		// Remember subscription id for forget() on unsubscribe.
 		if (message.subscription?.id) {
 			subForgetId.set(key, message.subscription.id);
 		}
@@ -212,7 +203,7 @@ function onMessage(event) {
 		return;
 	}
 
-	// 3) Realtime tick arriving on a subscribed ticks_history stream.
+	// 3) Realtime tick arriving on a subscribed stream.
 	if (message.msg_type === 'tick' && message.tick) {
 		const symbol = message.echo_req?.ticks_history;
 		const granularity = message.echo_req?.granularity;
@@ -277,7 +268,7 @@ function onMessage(event) {
 		return;
 	}
 
-	// 5) Server time response — resolve pending request.
+	// 5) Server time response.
 	if (message.msg_type === 'time') {
 		if (reqId !== undefined && pendingRequests.has(reqId)) {
 			const pending = pendingRequests.get(reqId);
@@ -296,7 +287,7 @@ function onMessage(event) {
 
 function closeSocketIfIdle() {
 	if (socket && !hasActiveWork()) {
-		socket.close();
+		try { socket.close(); } catch {}
 		socket = null;
 	}
 }
@@ -329,62 +320,6 @@ export function fetchHistory(symbol, granularity, fromEpoch, toEpoch) {
 		}, 30_000);
 
 		pendingRequests.set(reqId, {
-			resolve: value => {
-				clearTimeout(timer);
-				resolve(value);
-			},
-			reject: err => {
-				clearTimeout(timer);
-				reject(err);
-			},
-		});
-
-		const msg = {
-			ticks_history: symbol,
-			adjust_start_time: 1,
-			start: fromEpoch,
-			end: toEpoch,
-			style: 'candles',
-			granularity,
-			req_id: reqId,
-		};
-
-		ensureSocket();
-
-		if (!send(msg)) {
-			const retryOnOpen = () => {
-				if (socket && socket.readyState === WebSocket.OPEN) {
-					socket.removeEventListener('open', retryOnOpen);
-					send(msg);
-				}
-			};
-			if (socket) {
-				socket.addEventListener('open', retryOnOpen);
-			} else {
-				setTimeout(() => {
-					if (socket && socket.readyState === WebSocket.OPEN) {
-						send(msg);
-					}
-				}, SOCKET_CONNECT_DELAY_MS + 100);
-			}
-		}
-	});
-}
-
-// Fetches server time from Deriv (for bar countdown synchronization).
-export function fetchServerTime() {
-	return new Promise((resolve, reject) => {
-		const reqId = nextRequestId();
-		const timer = setTimeout(() => {
-			if (pendingRequests.has(reqId)) {
-				pendingRequests.delete(reqId);
-				reject(new Error('Deriv server time request timed out'));
-			}
-		}, 10_000);
-
-		pendingRequests.set(reqId, {
-			_resolve: resolve,
-			_reject: reject,
 			_timer: timer,
 			resolve: value => {
 				clearTimeout(timer);
@@ -396,30 +331,42 @@ export function fetchServerTime() {
 			},
 		});
 
-		const msg = {
-			time: 1,
+		send({
+			ticks_history: symbol,
+			adjust_start_time: 1,
+			start: fromEpoch,
+			end: toEpoch,
+			style: 'candles',
+			granularity,
 			req_id: reqId,
-		};
+		});
+	});
+}
 
-		ensureSocket();
-
-		if (!send(msg)) {
-			const retryOnOpen = () => {
-				if (socket && socket.readyState === WebSocket.OPEN) {
-					socket.removeEventListener('open', retryOnOpen);
-					send(msg);
-				}
-			};
-			if (socket) {
-				socket.addEventListener('open', retryOnOpen);
-			} else {
-				setTimeout(() => {
-					if (socket && socket.readyState === WebSocket.OPEN) {
-						send(msg);
-					}
-				}, SOCKET_CONNECT_DELAY_MS + 100);
+// Fetches server time from Deriv.
+export function fetchServerTime() {
+	return new Promise((resolve, reject) => {
+		const reqId = nextRequestId();
+		const timer = setTimeout(() => {
+			if (pendingRequests.has(reqId)) {
+				pendingRequests.delete(reqId);
+				reject(new Error('Deriv server time request timed out'));
 			}
-		}
+		}, 10_000);
+
+		pendingRequests.set(reqId, {
+			_timer: timer,
+			resolve: value => {
+				clearTimeout(timer);
+				resolve(value);
+			},
+			reject: err => {
+				clearTimeout(timer);
+				reject(err);
+			},
+		});
+
+		send({ time: 1, req_id: reqId });
 	});
 }
 
@@ -449,14 +396,10 @@ export function subscribeStream(
 
 	const handlers = new Map();
 	handlers.set(subscriberUID, handler);
-	activeSubscriptions.set(key, {
-		symbol,
-		granularity,
-		handlers,
-	});
+	activeSubscriptions.set(key, { symbol, granularity, handlers });
 	subscriberIndex.set(subscriberUID, key);
 
-	sendSubscription(ensureSocket(), symbol, granularity);
+	sendSubscription(symbol, granularity);
 }
 
 // Unsubscribes a subscriber from realtime updates.
@@ -472,7 +415,6 @@ export function unsubscribeStream(subscriberUID) {
 	sub.handlers.delete(subscriberUID);
 
 	if (sub.handlers.size === 0) {
-		// Send forget to cancel the subscription on the server.
 		const forgetId = subForgetId.get(key);
 		if (forgetId && socket && socket.readyState === WebSocket.OPEN) {
 			socket.send(JSON.stringify({
@@ -482,6 +424,6 @@ export function unsubscribeStream(subscriberUID) {
 		}
 		subForgetId.delete(key);
 		activeSubscriptions.delete(key);
-		stopSocketWorkIfIdle();
+		// Don't close socket immediately — let idle detection handle it.
 	}
 }
