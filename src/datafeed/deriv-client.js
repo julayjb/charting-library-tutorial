@@ -142,12 +142,9 @@ function createSocket() {
   return ws;
 }
 
-function closeSocketIfIdle() {
-  if (socket && !hasActiveWork()) {
-    try { socket.close(); } catch {}
-    socket = null;
-  }
-}
+// Socket is kept alive for the page lifetime — never close it between requests.
+// The Deriv public endpoint has no per-connection cost and keeping one persistent
+// connection avoids the reconnect churn that caused "connecting every second".
 
 // ─────────────────────────────────────────────
 // History Request Queue (rate-limit aware)
@@ -240,7 +237,6 @@ function onMessage(event) {
       }
 
       pending.reject(new Error(`Deriv API error: ${errMsg}`));
-      if (!hasActiveWork()) closeSocketIfIdle();
     }
     return;
   }
@@ -255,7 +251,6 @@ function onMessage(event) {
         ? normalizeCandles(message.candles)
         : [];
       pending.resolve(bars);
-      if (!hasActiveWork()) closeSocketIfIdle();
     }
     return;
   }
@@ -363,7 +358,6 @@ function onMessage(event) {
       } else {
         pending.reject(new Error('Invalid time response'));
       }
-      if (!hasActiveWork()) closeSocketIfIdle();
     }
     return;
   }
@@ -499,11 +493,12 @@ export function unsubscribeStream(subscriberUID) {
 }
 
 function sendSubscription(symbol, granularity) {
-  // For subscription, we intentionally bypass the rate-limited history queue
-  // since Deriv handles subscribe differently from one-shot ticks_history
+  // IMPORTANT: end is a REQUIRED field for ticks_history.
+  // For subscriptions, "latest" means "starting from the most recent data".
   send({
     ticks_history: symbol,
     adjust_start_time: 1,
+    end: 'latest',
     style: 'candles',
     granularity,
     subscribe: 1,
